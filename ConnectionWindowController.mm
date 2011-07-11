@@ -8,6 +8,8 @@
 
 #import "Configure.h"
 #import "NSString+Extras.h"
+#import "NSProgressIndicator+Extras.h"
+#import <BWToolkitFramework/BWToolkitFramework.h>
 #import "ConnectionWindowController.h"
 #import "QueryWindowController.h"
 #import "AddDBController.h";
@@ -17,11 +19,12 @@
 #import "ExportWindowController.h"
 #import "ResultsOutlineViewController.h"
 #import "DatabasesArrayController.h"
+#import "StatMonitorTableController.h"
 #import "Connection.h"
 #import "Sidebar.h"
 #import "SidebarNode.h"
 #import "MongoDB.h"
-#import <SSHTunnel/SSHTunnel.h>
+#import "Tunnel.h"
 
 @implementation ConnectionWindowController
 
@@ -31,6 +34,11 @@
 @synthesize conn;
 @synthesize mongoDB;
 @synthesize sidebar;
+@synthesize loaderIndicator;
+@synthesize monitorButton;
+@synthesize reconnectButton;
+@synthesize monitorSheetController;
+@synthesize statMonitorTableController;
 @synthesize databases;
 @synthesize collections;
 @synthesize selectedDB;
@@ -44,47 +52,125 @@
 @synthesize importWindowController;
 @synthesize exportWindowController;
 
+
 - (id)init {
     if (![super initWithWindowNibName:@"ConnectionWindow"]) return nil;
     return self;
 }
 
+- (void) tunnelStatusChanged: (Tunnel*) tunnel status: (NSString*) status {
+    NSLog(@"SSH TUNNEL STATUS: %@", status);
+    if( [status isEqualToString: @"CONNECTED"] ){
+        exitThread = YES;
+        [self connect:YES];
+    }
+}
+
+- (void) connect:(BOOL)haveHostAddress {
+    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    [loaderIndicator start];
+    [reconnectButton setEnabled:NO];
+    [monitorButton setEnabled:NO];
+    bool connected;
+    NSString *hostaddress = [[[NSString alloc] init] autorelease];
+    if (!haveHostAddress && [conn.usessh intValue]==1) {
+        NSString *portForward = [[NSString alloc] initWithFormat:@"L:%@:%@:%@:%@", conn.hostport, conn.host, conn.sshhost, conn.bindport];
+        NSMutableArray *portForwardings = [[NSMutableArray alloc] initWithObjects:portForward, nil];
+        [portForward release];
+        if (!sshTunnel)
+            sshTunnel =[[Tunnel alloc] init];
+        [sshTunnel setDelegate:self];
+        [sshTunnel setUser:conn.sshuser];
+        [sshTunnel setHost:conn.sshhost];
+        [sshTunnel setPassword:conn.sshpassword];
+        [sshTunnel setKeyfile:conn.sshkeyfile];
+        [sshTunnel setPort:[conn.sshport intValue]];
+        [sshTunnel setPortForwardings:portForwardings];
+        [sshTunnel setAliveCountMax:3];
+        [sshTunnel setAliveInterval:30];
+        [sshTunnel setTcpKeepAlive:YES];
+        [sshTunnel setCompression:YES];
+        //[sshTunnel start];
+        [portForwardings release];
+        return;
+    }else if (!haveHostAddress && [conn.host isEqualToString:@"flame.mongohq.com"]) {
+        hostaddress = [NSString stringWithFormat:@"%@:%@/%@", conn.host, conn.hostport, conn.defaultdb];
+        connected = mongoDB = [[MongoDB alloc] initWithConn:hostaddress];
+    }else {
+        if ([conn.userepl intValue] == 1) {
+            hostaddress = conn.repl_name;
+            NSArray *tmp = [conn.servers componentsSeparatedByString:@","];
+            NSMutableArray *hosts = [[NSMutableArray alloc] initWithCapacity:[tmp count]];
+            for (NSString *h in tmp) {
+                NSString *host = [h stringByTrimmingWhitespace];
+                if ([host length] == 0) {
+                    continue;
+                }
+                [hosts addObject:host];
+            }
+            connected = mongoDB = [[MongoDB alloc] initWithConn:conn.repl_name hosts:hosts];
+            [hosts release];
+        }else{
+            hostaddress = [NSString stringWithFormat:@"%@:%@", conn.host, conn.hostport];
+            connected = mongoDB = [[MongoDB alloc] initWithConn:hostaddress];
+        }
+    }
+    [loaderIndicator stop];
+    if (connected) {
+        if ([conn.adminuser isPresent]) {
+            [mongoDB authUser:conn.adminuser pass:conn.adminpass database:conn.defaultdb];
+        }
+        
+        if (![conn.defaultdb isPresent]) {
+            [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(addDB:) name:kNewDBWindowWillClose object:nil];
+        }
+        
+        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(addCollection:) name:kNewCollectionWindowWillClose object:nil];
+        [reconnectButton setEnabled:YES];
+        [monitorButton setEnabled:YES];
+        [self reloadSidebar];
+        [self showServerStatus:nil];
+    }
+    [pool release];
+}
+
 - (void)windowDidLoad {
     [super windowDidLoad];
-    NSString *appVersion = [[NSString alloc] initWithFormat:@"version(%@)", [[[NSBundle mainBundle] infoDictionary] objectForKey:(NSString*)kCFBundleVersionKey] ];
+    exitThread = NO;
+    NSString *appVersion = [[NSString alloc] initWithFormat:@"version(%@[%@])", [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleShortVersionString"], [[[NSBundle mainBundle] infoDictionary] objectForKey:(NSString*)kCFBundleVersionKey] ];
     [bundleVersion setStringValue: appVersion];
     [appVersion release];
-    
-    NSString *hostaddress;
+    [self connect:NO];
     if ([conn.usessh intValue]==1) {
-        sshTunnel = [SSHTunnel sshTunnelWithHostname:conn.sshhost 
-                                                port:[conn.sshport intValue] 
-                                            username:conn.sshpassword 
-                                            password:conn.sshpassword];
-        [sshTunnel addLocalForwardWithBindAddress:conn.bindaddress 
-                                         bindPort:[conn.bindport intValue] 
-                                             host:conn.host 
-                                         hostPort:[conn.hostport intValue]];
-        [sshTunnel launch];
-        hostaddress = [NSString stringWithFormat:@"%@:%@", conn.bindaddress, conn.bindport];
-    }else if ([conn.host isEqualToString:@"flame.mongohq.com"]) {
-        hostaddress = [NSString stringWithFormat:@"%@:%@/%@", conn.host, conn.hostport, conn.defaultdb];
-    }else {
-        hostaddress = [NSString stringWithFormat:@"%@:%@", conn.host, conn.hostport];
+        [NSThread detachNewThreadSelector: @selector(checkTunnel) toTarget:self withObject:nil ];
     }
-    mongoDB = [[MongoDB alloc] initWithConn:hostaddress];
-    if ([conn.adminuser isPresent]) {
-        [mongoDB authUser:conn.adminuser pass:conn.adminpass database:conn.defaultdb];
+}
+
+- (IBAction)reconnect:(id)sender
+{
+    [self connect:NO];
+    if ([conn.usessh intValue]==1) {
+        [NSThread detachNewThreadSelector: @selector(checkTunnel) toTarget:self withObject:nil ];
     }
-    
-    if (![conn.defaultdb isPresent]) {
-        [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(addDB:) name:kNewDBWindowWillClose object:nil];
-    }
-    
-    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(addCollection:) name:kNewCollectionWindowWillClose object:nil];
-    
-    [self reloadSidebar];
-    [self showServerStatus:nil];
+}
+
+- (void)checkTunnel {
+    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    while(!exitThread){
+		@synchronized(self){
+            if ([sshTunnel running] == NO){
+                [sshTunnel start];
+            }else if( [sshTunnel running] == YES && [sshTunnel checkProcess] == NO ){
+                [sshTunnel stop];
+                [NSThread sleepForTimeInterval:2];
+                [sshTunnel start];
+            }
+            [sshTunnel readStatus];
+		}
+		[NSThread sleepForTimeInterval:3];
+	}
+    [NSThread exit];
+    [pool release];
 }
 
 - (void)dealloc {
@@ -102,6 +188,11 @@
     [addDBController release];
     [addCollectionController release];
     [resultsTitle release];
+    [loaderIndicator release];
+    [reconnectButton release];
+    [monitorButton release];
+    [monitorSheetController release];
+    [statMonitorTableController release];
     [bundleVersion release];
     [authWindowController release];
     [importWindowController release];
@@ -110,21 +201,27 @@
 }
 
 - (void)windowWillClose:(NSNotification *)notification {
-    [sshTunnel terminate];
-    [sshTunnel waitUntilExit];
+    if ([sshTunnel running]) {
+        [sshTunnel stop];
+    }
+    //exitThread = YES;
+    resultsOutlineViewController = nil;
     selectedDB = nil;
     selectedCollection = nil;
-    [self release];
+    [super release];
 }
 
 - (void)reloadSidebar {
+    [loaderIndicator start];
     [sidebar addSection:@"1" caption:@"DATABASES"];
     [self reloadDBList];
     [sidebar reloadData];
+    [loaderIndicator stop];
 }
 
 - (void)reloadDBList {
     NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    [loaderIndicator start];
     //[selectedDB release];
     selectedDB = nil;
     //[selectedCollection release];
@@ -147,6 +244,7 @@
     }
     [sidebar reloadData];
     [sidebar expandItem:@"1"];
+    [loaderIndicator stop];
     [pool release];
 }
 
@@ -168,7 +266,12 @@
     }
     [db release];
     [collections release];
+    [loaderIndicator start];
     collections = [[NSMutableArray alloc] initWithArray:[mongoDB listCollections:dbname user:user password:password]];
+    if ([collections count] == 0) {
+        [collections addObject:@"test"];
+    }
+    [loaderIndicator stop];
     [dbname release];
     
     [sidebar removeItem:@"2"];
@@ -200,12 +303,16 @@
 
 - (IBAction)showServerStatus:(id)sender 
 {
+    [loaderIndicator start];
     [resultsTitle setStringValue:[NSString stringWithFormat:@"Server %@:%@ stats", conn.host, conn.hostport]];
-    NSMutableArray *results = [[NSMutableArray alloc] initWithArray:[mongoDB serverStatus]];
+    NSArray *serverStats = [[NSArray alloc] initWithArray:[mongoDB serverStatus]];
+    NSMutableArray *results = [[NSMutableArray alloc] initWithArray:serverStats];
+    [serverStats release];
     resultsOutlineViewController.results = results;
     [resultsOutlineViewController.myOutlineView reloadData];
     [results release];
-    //NSLog(@"STATUS: %@", results);
+    [loaderIndicator stop];
+    
 }
 
 - (IBAction)showDBStats:(id)sender 
@@ -214,6 +321,7 @@
         NSRunAlertPanel(@"Error", @"Please specify a database!", @"OK", nil, nil);
         return;
     }
+    [loaderIndicator start];
     [resultsTitle setStringValue:[NSString stringWithFormat:@"Database %@ stats", [selectedDB caption]]];
     NSString *user=nil;
     NSString *password=nil;
@@ -229,15 +337,17 @@
     resultsOutlineViewController.results = results;
     [resultsOutlineViewController.myOutlineView reloadData];
     [results release];
+    [loaderIndicator stop];
     //NSLog(@"STATUS: %@", results);
 }
 
 - (IBAction)showCollStats:(id)sender 
-{
+{NSLog(@"showCollStats");
     if (selectedDB==nil || selectedCollection==nil) {
         NSRunAlertPanel(@"Error", @"Please specify a collection!", @"OK", nil, nil);
         return;
     }
+    [loaderIndicator start];
     [resultsTitle setStringValue:[NSString stringWithFormat:@"Collection %@.%@ stats", [selectedDB caption], [selectedCollection caption]]];
     NSString *user=nil;
     NSString *password=nil;
@@ -255,6 +365,7 @@
     resultsOutlineViewController.results = results;
     [resultsOutlineViewController.myOutlineView reloadData];
     [results release];
+    [loaderIndicator stop];
 }
 
 - (IBAction)createDBorCollection:(id)sender
@@ -341,9 +452,9 @@
 - (IBAction)dropDBorCollection:(id)sender
 {
     if (selectedCollection) {
-        [self dropCollection:[selectedCollection caption] ForDB:[selectedDB caption]];
+        [self dropWarning:[NSString stringWithFormat:@"COLLECTION:%@", [selectedCollection caption]]];
     }else {
-        [self dropDB];
+        [self dropWarning:[NSString stringWithFormat:@"DB:%@", [selectedDB caption]]];
     }
 }
 
@@ -358,10 +469,12 @@
         password = db.password;
     }
     [db release];
+    [loaderIndicator start];
     [mongoDB dropCollection:collectionname 
                       forDB:dbname 
                        user:user 
                    password:password];
+    [loaderIndicator stop];
     if ([[selectedDB caption] isEqualToString:dbname]) {
         [sidebar selectItem:[selectedDB nodeKey]];
     }
@@ -383,9 +496,11 @@
         password = db.password;
     }
     [db release];
+    [loaderIndicator start];
     [mongoDB dropDB:[selectedDB caption] 
                 user:user 
             password:password];
+    [loaderIndicator stop];
     [self reloadSidebar];
     [pool release];
 }
@@ -468,6 +583,62 @@
     exportWindowController.mongoDB = mongoDB;
     exportWindowController.dbname = [selectedDB caption];
     [exportWindowController showWindow:self];
+}
+
+- (void)alertDidEnd:(NSAlert *)alert returnCode:(int)returnCode contextInfo:(void *)contextInfo
+{
+    if (returnCode == NSAlertFirstButtonReturn)
+    {
+        if (selectedCollection) {
+            [self dropCollection:[selectedCollection caption] ForDB:[selectedDB caption]];
+        }else {
+            [self dropDB];
+        }
+    }
+}
+
+- (void)dropWarning:(NSString *)msg
+{
+    NSAlert *alert = [[[NSAlert alloc] init] autorelease];
+    [alert addButtonWithTitle:@"OK"];
+    [alert addButtonWithTitle:@"Cancel"];
+    [alert setMessageText:[NSString stringWithFormat:@"Drop this %@?", msg]];
+    [alert setInformativeText:[NSString stringWithFormat:@"Dropped %@ cannot be restored.", msg]];
+    [alert setAlertStyle:NSWarningAlertStyle];
+    [alert beginSheetModalForWindow:[self window] modalDelegate:self
+                     didEndSelector:@selector(alertDidEnd:returnCode:contextInfo:)
+                        contextInfo:nil];
+}
+
+- (IBAction)startMonitor:(id)sender {
+    monitorStopped = NO;
+    [NSThread detachNewThreadSelector: @selector(updateMonitor) toTarget:self withObject:nil ];
+    [monitorSheetController openSheet:sender];
+    NSLog(@"startMonitor");
+}
+
+- (IBAction)stopMonitor:(id)sender {
+    [monitorSheetController closeSheet:sender];
+    monitorStopped = YES;
+    NSLog(@"stopMonitor");
+}
+
+- (void)updateMonitor {
+    NSAutoreleasePool *pool = [[NSAutoreleasePool alloc] init];
+    NSDate *prev = [NSDate date];
+    mongo::BSONObj a = [mongoDB serverStat];
+    while (!monitorStopped) {
+        [NSThread sleepForTimeInterval:1];
+        NSDate *now = [NSDate date];
+        mongo::BSONObj b = [mongoDB serverStat];
+        NSDictionary *item = [mongoDB serverMonitor:a second:b currentDate:now previousDate:prev];
+        a = b;
+        prev = now;
+        [statMonitorTableController addObject:item];
+        
+    }
+    [NSThread exit];
+    [pool release];
 }
 
 @end

@@ -110,13 +110,13 @@
     }
 
     NSURL *url = [NSURL fileURLWithPath: [applicationSupportDirectory stringByAppendingPathComponent: @"storedata"]];
-    
     // set store options to enable spotlight indexing
-    
     NSMutableDictionary *storeOptions = [NSMutableDictionary dictionary];
     [storeOptions setObject:YOUR_EXTERNAL_RECORD_EXTENSION forKey:NSExternalRecordExtensionOption];
     [storeOptions setObject:externalRecordsDirectory forKey:NSExternalRecordsDirectoryOption];
-
+    [storeOptions setObject:[NSNumber numberWithBool:YES] forKey:NSMigratePersistentStoresAutomaticallyOption];
+    [storeOptions setObject:[NSNumber numberWithBool:YES] forKey:NSInferMappingModelAutomaticallyOption];
+    
     persistentStoreCoordinator = [[NSPersistentStoreCoordinator alloc] initWithManagedObjectModel: mom];
     if (![persistentStoreCoordinator addPersistentStoreWithType:YOUR_STORE_TYPE 
                                                 configuration:nil 
@@ -141,6 +141,7 @@
     if (managedObjectContext) return managedObjectContext;
 
     NSPersistentStoreCoordinator *coordinator = [self persistentStoreCoordinator];
+    
     if (!coordinator) {
         NSMutableDictionary *dict = [NSMutableDictionary dictionary];
         [dict setValue:@"Failed to initialize the store" forKey:NSLocalizedDescriptionKey];
@@ -164,6 +165,10 @@
     return [[self managedObjectContext] undoManager];
 }
 
+-(BOOL) applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)theApplication
+{
+    return YES;
+}
 
 /**
     Performs the save action for the application, which is to send the save:
@@ -286,7 +291,7 @@
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(addConection:) name:kNewConnectionWindowWillClose object:nil];
-    NSString *appVersion = [[NSString alloc] initWithFormat:@"version(%@)", [[[NSBundle mainBundle] infoDictionary] objectForKey:(NSString*)kCFBundleVersionKey] ];
+    NSString *appVersion = [[NSString alloc] initWithFormat:@"version(%@[%@])", [[[NSBundle mainBundle] infoDictionary] objectForKey:@"CFBundleShortVersionString"], [[[NSBundle mainBundle] infoDictionary] objectForKey:(NSString*)kCFBundleVersionKey] ];
     [bundleVersion setStringValue: appVersion];
     [appVersion release];
 }
@@ -316,6 +321,7 @@
     [newObj setValue:[[sender object] objectForKey:@"bindport"] forKey:@"bindport"];
     [newObj setValue:[[sender object] objectForKey:@"sshhost"] forKey:@"sshhost"];
     [newObj setValue:[[sender object] objectForKey:@"sshport"] forKey:@"sshport"];
+    [newObj setValue:[[sender object] objectForKey:@"sshkeyfile"] forKey:@"sshkeyfile"];
     [newObj setValue:[[sender object] objectForKey:@"sshuser"] forKey:@"sshuser"];
     [newObj setValue:[[sender object] objectForKey:@"sshpassword"] forKey:@"sshpassword"];
     [connectionsArrayController addObject:newObj];

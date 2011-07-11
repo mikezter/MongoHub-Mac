@@ -11,12 +11,19 @@
 
 @interface MongoDB : NSObject {
     mongo::DBClientConnection *conn;
+    mongo::DBClientReplicaSet::DBClientReplicaSet *repl_conn;
+    BOOL isRepl;
 }
 - (mongo::DBClientConnection *)mongoConnection;
+- (mongo::DBClientReplicaSet::DBClientReplicaSet *)mongoReplConnection;
 
 - (id)initWithConn:(NSString *)host;
+- (id)initWithConn:(NSString *)name
+             hosts:(NSArray *)hosts;
 - (bool)connect:(NSString *)host;
-- (void)authUser:(NSString *)user 
+- (bool)connect:(NSString *)name 
+          hosts:(NSArray *)hosts;
+- (bool)authUser:(NSString *)user 
             pass:(NSString *)pass 
         database:(NSString *)db;
 - (NSArray *)listDatabases;
@@ -51,6 +58,12 @@
                          skip:(NSNumber *)skip 
                         limit:(NSNumber *)limit 
                          sort:(NSString *)sort;
+- (void) saveInDB:(NSString *)dbname 
+       collection:(NSString *)collectionname 
+             user:(NSString *)user 
+         password:(NSString *)password 
+       jsonString:(NSString *)jsonString 
+              _id:(NSString *)_id;
 - (void) updateInDB:(NSString *)dbname 
          collection:(NSString *)collectionname 
                user:(NSString *)user 
@@ -111,4 +124,18 @@
 
 - (std::auto_ptr<mongo::DBClientCursor>) findAllCursorInDB:(NSString *)dbname collection:(NSString *)collectionname user:(NSString *)user password:(NSString *)password fields:(mongo::BSONObj) fields;
 
+- (std::auto_ptr<mongo::DBClientCursor>) findCursorInDB:(NSString *)dbname collection:(NSString *)collectionname user:(NSString *)user password:(NSString *)password critical:(NSString *)critical fields:(NSString *)fields skip:(NSNumber *)skip limit:(NSNumber *)limit sort:(NSString *)sort;
+
+- (void) updateBSONInDB:(NSString *)dbname 
+             collection:(NSString *)collectionname 
+                   user:(NSString *)user 
+               password:(NSString *)password 
+               critical:(mongo::Query)critical 
+                 fields:(mongo::BSONObj)fields 
+                  upset:(bool)upset;
+
+- (mongo::BSONObj) serverStat;
+- (NSDictionary *) serverMonitor:(mongo::BSONObj)a second:(mongo::BSONObj)b currentDate:(NSDate *)now previousDate:(NSDate *)previous;
+- (double) diff:(NSString *)aName first:(mongo::BSONObj)a second:(mongo::BSONObj)b timeInterval:(NSTimeInterval)interval;
+- (double) percent:(NSString *)aOut value:(NSString *)aVal first:(mongo::BSONObj)a second:(mongo::BSONObj)b;
 @end

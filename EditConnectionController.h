@@ -13,6 +13,9 @@
 @interface EditConnectionController : NSWindowController {
     IBOutlet NSTextField *hostTextField;
     IBOutlet NSTextField *hostportTextField;
+    IBOutlet NSButton *usereplCheckBox;
+    IBOutlet NSTextField *serversTextField;
+    IBOutlet NSTextField *replnameTextField;
     IBOutlet NSTextField *aliasTextField;
     IBOutlet NSTextField *adminuserTextField;
     IBOutlet NSSecureTextField *adminpassTextField;
@@ -24,6 +27,7 @@
     IBOutlet NSTextField *sshportTextField;
     IBOutlet NSTextField *sshuserTextField;
     IBOutlet NSSecureTextField *sshpasswordTextField;
+    IBOutlet NSTextField *sshkeyfileTextField;
     IBOutlet ConnectionsArrayController *connectionsArrayController;
     Connection *connection;
     NSManagedObjectContext *managedObjectContext;
@@ -31,6 +35,9 @@
 
 @property (nonatomic, retain) NSTextField *hostTextField;
 @property (nonatomic, retain) NSTextField *hostportTextField;
+@property (nonatomic, retain) NSButton *usereplCheckBox;
+@property (nonatomic, retain) NSTextField *serversTextField;
+@property (nonatomic, retain) NSTextField *replnameTextField;
 @property (nonatomic, retain) NSTextField *aliasTextField;
 @property (nonatomic, retain) NSTextField *adminuserTextField;
 @property (nonatomic, retain) NSSecureTextField *adminpassTextField;
@@ -42,6 +49,7 @@
 @property (nonatomic, retain) NSTextField *sshportTextField;
 @property (nonatomic, retain) NSTextField *sshuserTextField;
 @property (nonatomic, retain) NSSecureTextField *sshpasswordTextField;
+@property (nonatomic, retain) NSTextField *sshkeyfileTextField;
 @property (nonatomic, retain) Connection *connection;
 @property (nonatomic, retain) ConnectionsArrayController *connectionsArrayController;
 @property (nonatomic, retain) NSManagedObjectContext *managedObjectContext;
@@ -49,6 +57,9 @@
 - (IBAction)cancel:(id)sender;
 - (IBAction)save:(id)sender;
 - (IBAction)enableSSH:(id)sender;
+- (IBAction)enableRepl:(id)sender;
 - (BOOL)validateConnection:(NSDictionary *)connectionInfo;
+
+- (IBAction)chooseKeyPath:(id)sender;
 
 @end

@@ -7,8 +7,10 @@
 //
 
 #import <Cocoa/Cocoa.h>
-#import <SSHTunnel/SSHTunnel.h>
+#import "Tunnel.h"
+@class BWSheetController;
 @class DatabasesArrayController;
+@class StatMonitorTableController;
 @class AddDBController;
 @class AddCollectionController;
 @class AuthWindowController;
@@ -28,17 +30,24 @@
     MongoDB *mongoDB;
     IBOutlet Sidebar *sidebar;
     IBOutlet NSTextField *resultsTitle;
+    IBOutlet NSProgressIndicator *loaderIndicator;
+    IBOutlet NSButton *reconnectButton;
+    IBOutlet NSButton *monitorButton;
+    IBOutlet BWSheetController *monitorSheetController;
+    IBOutlet StatMonitorTableController *statMonitorTableController;
     NSMutableArray *databases;
     NSMutableArray *collections;
     SidebarNode *selectedDB;
     SidebarNode *selectedCollection;
-    SSHTunnel *sshTunnel;
+    Tunnel *sshTunnel;
     AddDBController *addDBController;
     AddCollectionController *addCollectionController;
     AuthWindowController *authWindowController;
     ImportWindowController *importWindowController;
     ExportWindowController *exportWindowController;
     IBOutlet NSTextField *bundleVersion;
+    BOOL exitThread;
+    BOOL monitorStopped;
 }
 
 @property (nonatomic, retain) NSManagedObjectContext *managedObjectContext;
@@ -51,8 +60,13 @@
 @property (nonatomic, retain) NSMutableArray *collections;
 @property (nonatomic, retain) SidebarNode *selectedDB;
 @property (nonatomic, retain) SidebarNode *selectedCollection;
-@property (nonatomic, retain) SSHTunnel *sshTunnel;
+@property (nonatomic, retain) Tunnel *sshTunnel;
 @property (nonatomic, retain) NSTextField *resultsTitle;
+@property (nonatomic, retain) NSProgressIndicator *loaderIndicator;
+@property (nonatomic, retain) NSButton *monitorButton;
+@property (nonatomic, retain) NSButton *reconnectButton;
+@property (nonatomic, retain) BWSheetController *monitorSheetController;
+@property (nonatomic, retain) StatMonitorTableController *statMonitorTableController;
 @property (nonatomic, retain) AddDBController *addDBController;
 @property (nonatomic, retain) AddCollectionController *addCollectionController;
 @property (nonatomic, retain) NSTextField *bundleVersion;
@@ -64,6 +78,7 @@
 - (void)reloadDBList;
 - (void)useDB:(id)sender;
 - (void)useCollection:(id)sender;
+- (IBAction)reconnect:(id)sender;
 - (IBAction)showServerStatus:(id)sender;
 - (IBAction)showDBStats:(id)sender;
 - (IBAction)showCollStats:(id)sender;
@@ -78,4 +93,12 @@
 - (void)dropDB;
 - (IBAction)query:(id)sender;
 - (IBAction)showAuth:(id)sender;
+-(void) checkTunnel;
+- (void) connect:(BOOL)haveHostAddress;
+- (void) tunnelStatusChanged: (Tunnel*) tunnel status: (NSString*) status;
+- (void)dropWarning:(NSString *)msg;
+
+- (IBAction)startMonitor:(id)sender;
+- (IBAction)stopMonitor:(id)sender;
+- (void)updateMonitor;
 @end
